@@ -16,6 +16,8 @@ yum -y install wget git net-tools bind-utils iptables-services bridge-utils bash
 yum -y install cloud-utils-growpart.noarch
 yum -y update --exclude=WALinuxAgent
 yum -y update glusterfs-fuse
+systemctl restart network
+systemctl restart dbus
 
 echo $(date) " - Installing Ansible, pyOpenSSL and python-passlib"
 yum -y --enablerepo=epel install ansible pyOpenSSL python-passlib
@@ -47,6 +49,14 @@ rootdev=`findmnt --target / -o SOURCE -n`
 lvextend -l +100%FREE $rootdev
 xfs_growfs $rootdev
 
+fi
+
+if [ $? -eq 0 ]
+then
+    echo $(date) " - Root File System successfully extended"
+else
+    echo $(date) " - Root File System failed to be grown"
+	exit 20
 fi
 
 # Install Docker 1.13.x

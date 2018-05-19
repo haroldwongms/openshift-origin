@@ -105,6 +105,12 @@ do
 $NODE-$c openshift_node_labels=\"{'region': 'app', 'zone': 'default'}\" openshift_hostname=$NODE-$c"
 done
 
+# Set HA mode if 3 or 5 masters chosen
+if [[ $MASTERCOUNT != 1 ]]
+then
+	export HAMODE="openshift_master_cluster_method=native"
+fi
+
 # Create CNS nodes grouping if CNS is enabled
 if [ $ENABLECNS == "true" ]
 then
@@ -182,7 +188,7 @@ openshift_registry_selector='region=infra'
 # Deploy Service Catalog
 openshift_enable_service_catalog=false
 
-openshift_master_cluster_method=native
+$HAMODE
 openshift_master_cluster_hostname=$MASTERPUBLICIPHOSTNAME
 openshift_master_cluster_public_hostname=$MASTERPUBLICIPHOSTNAME
 openshift_master_cluster_public_vip=$MASTERPUBLICIPADDRESS
@@ -244,6 +250,7 @@ runuser -l $SUDOUSER -c "git clone -b release-3.9 https://github.com/openshift/o
 
 echo $(date) " - Running network_manager.yml playbook"
 DOMAIN=`domainname -d`
+DNSSERVER=`tail -1 /etc/resolv.conf | cut -d ' ' -f 2`
 
 # Setup NetworkManager to manage eth0
 runuser -l $SUDOUSER -c "ansible-playbook /home/$SUDOUSER/openshift-ansible/playbooks/openshift-node/network_manager.yml"
@@ -251,7 +258,10 @@ runuser -l $SUDOUSER -c "ansible-playbook /home/$SUDOUSER/openshift-ansible/play
 echo $(date) " - Setting up NetworkManager on eth0"
 # Configure resolv.conf on all hosts through NetworkManager
 
-runuser -l $SUDOUSER -c "ansible all -b -m service -a \"name=NetworkManager state=restarted\""
+runuser -l $SUDOUSER -c "ansible all -b -o -m service -a \"name=NetworkManager state=restarted\""
+runuser -l $SUDOUSER -c "ansible all -b -o -m command -a \"nmcli con modify eth0 ipv4.dns-search $DOMAIN, ipv4.dns $DNSSERVER\""
+runuser -l $SUDOUSER -c "ansible all -b -o -m service -a \"name=NetworkManager state=restarted\""
+echo $(date) " - NetworkManager configuration complete"
 
 # Initiating installation of OpenShift Container Platform prerequisites using Ansible Playbook
 echo $(date) " - Running Prerequisites via Ansible Playbook"
@@ -399,7 +409,7 @@ EOF
 	# Installing Service Catalog, Ansible Service Broker and Template Service Broker
 	
 	echo $(date) "- Installing Service Catalog, Ansible Service Broker and Template Service Broker"
-	runuser -l $SUDOUSER -c "ansible-playbook /home/$SUDOUSER/openshift-ansible/playbooks/openshift-service-catalog/config.yml"
+	runuser -l $SUDOUSER -c "ansible-playbook -f 10 /home/$SUDOUSER/openshift-ansible/playbooks/openshift-service-catalog/config.yml"
 	
 fi
 
@@ -413,9 +423,9 @@ then
 	echo $(date) "- Deploying Metrics"
 	if [ $ENABLECNS == "true" ]
 	then
-		runuser -l $SUDOUSER -c "ansible-playbook /home/$SUDOUSER/openshift-ansible/playbooks/openshift-metrics/config.yml -e openshift_metrics_install_metrics=True -e openshift_metrics_cassandra_storage_type=dynamic -e openshift_hosted_metrics_deployer_version=$OO_VERSION"
+		runuser -l $SUDOUSER -c "ansible-playbook -f 10 /home/$SUDOUSER/openshift-ansible/playbooks/openshift-metrics/config.yml -e openshift_metrics_install_metrics=True -e openshift_metrics_cassandra_storage_type=dynamic -e openshift_hosted_metrics_deployer_version=$OO_VERSION"
 	else
-		runuser -l $SUDOUSER -c "ansible-playbook /home/$SUDOUSER/openshift-ansible/playbooks/openshift-metrics/config.yml -e openshift_metrics_install_metrics=True -e openshift_hosted_metrics_deployer_version=$OO_VERSION"
+		runuser -l $SUDOUSER -c "ansible-playbook -f 10 /home/$SUDOUSER/openshift-ansible/playbooks/openshift-metrics/config.yml -e openshift_metrics_install_metrics=True -e openshift_hosted_metrics_deployer_version=$OO_VERSION"
 	fi
 	if [ $? -eq 0 ]
 	then
